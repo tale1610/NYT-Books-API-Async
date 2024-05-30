@@ -1,4 +1,8 @@
-﻿using Newtonsoft.Json;
+﻿using System.Collections.Generic;
+using System.Net.Http;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Server
 {
@@ -7,7 +11,7 @@ namespace Server
         private string apiUrl = "https://api.nytimes.com/svc/books/v3/reviews.json";
         private string apiKey = "7DQNwuHGWsu87ZfjCmO9Pg4sSzdmDPAs";
 
-        public List<Book> SearchBooksByAuthor(string author)
+        public async Task<List<Book>> SearchBooksByAuthorAsync(string author)
         {
             List<Book> books = new List<Book>();
 
@@ -18,15 +22,23 @@ namespace Server
             {
                 using (HttpClient httpClient = new HttpClient())
                 {
-                    HttpResponseMessage apiResponse = httpClient.GetAsync(fullUrl).Result;//fetchujemo podatke sa apija
+                    HttpResponseMessage apiResponse = await httpClient.GetAsync(fullUrl);
                     if (apiResponse.IsSuccessStatusCode)
                     {
-                        string responseBody = apiResponse.Content.ReadAsStringAsync().Result;
-                        dynamic jsonData = JsonConvert.DeserializeObject(responseBody);
-                        foreach (var item in jsonData.results)
+                        string responseBody = await apiResponse.Content.ReadAsStringAsync();
+
+                        // Deserializacija JSON objekta
+                        JObject jsonData = JObject.Parse(responseBody);
+
+                        // Ekstrakcija liste knjiga iz JSON objekta
+                        JArray booksArray = (JArray)jsonData["results"];
+
+                        // Deserializacija liste knjiga
+                        List<Book> deserializedBooks = booksArray.ToObject<List<Book>>();
+
+                        foreach (var item in deserializedBooks)
                         {
-                            Book book = new Book(item.url.ToString(), item.publication_dt.ToString(), item.book_title.ToString(), item.book_author.ToString(), item.summary.ToString());
-                            books.Add(book);
+                            books.Add(new Book(item.Url, item.PublicationDate, item.Title, item.Author, item.Summary));
                         }
                     }
                     else
@@ -42,7 +54,6 @@ namespace Server
                 Console.WriteLine($"Greska u funkciji SearchBooksByAuthor: {e.Message}");
                 throw;
             }
-
         }
     }
 }

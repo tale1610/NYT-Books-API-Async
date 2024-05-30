@@ -1,4 +1,6 @@
-﻿namespace Server
+﻿using Newtonsoft.Json;
+
+namespace Server
 {
     public class Book
     {

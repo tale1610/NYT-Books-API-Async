@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Diagnostics;
+using System.Threading.Tasks;
 
 namespace Server
 {
@@ -16,21 +17,20 @@ namespace Server
             }
         }
 
-        public void Start()
+        public async Task StartAsync()
         {
             listener.Start();
             Console.WriteLine("Server pokrenut...");
 
             while (true)
             {
-                HttpListenerContext context = listener.GetContext();
-                ThreadPool.QueueUserWorkItem(ProcessRequest, context);
+                var context = await listener.GetContextAsync();
+                _ = Task.Run(() => ProcessRequestAsync(context));
             }
         }
 
-        private void ProcessRequest(object state)
+        private async Task ProcessRequestAsync(HttpListenerContext context)
         {
-            HttpListenerContext context = (HttpListenerContext)state;
             HttpListenerRequest request = context.Request;
             HttpListenerResponse response = context.Response;
 
@@ -40,7 +40,6 @@ namespace Server
 
             try
             {
-                // Procesiranje zahteva
                 string author = request.QueryString["author"];
                 if (string.IsNullOrEmpty(author))
                 {
@@ -48,19 +47,19 @@ namespace Server
                     return;
                 }
 
-                if (BookCache.ContainsKey(author))//ako se autor (kljuc u kesu) nalazi u kesu, pribavljamo odgovor iz kesa
+                if (BookCache.ContainsKey(author))
                 {
-                    SendCachedResponse(author, response);
+                    await SendCachedResponseAsync(author, response);
                     sw.Stop();
                     Console.WriteLine($"Vreme potrebno za pribavljanje podataka iz kesa za autora {author}: {sw.Elapsed}");
                 }
-                else//ako ne, pribavljamo odgovor sa apija i kesiramo taj odgovor 
+                else
                 {
-                    SearchAndSendResponse(author, response);
+                    await SearchAndSendResponseAsync(author, response);
                     sw.Stop();
                     Console.WriteLine($"Vreme potrebno za pribavljanje podataka koji nije u kesu za autora {author}: {sw.Elapsed}");
                 }
-                
+
             }
             catch (Exception e)
             {
@@ -76,33 +75,32 @@ namespace Server
             response.Close();
         }
 
-        private void SendCachedResponse(string author, HttpListenerResponse response)
+        private async Task SendCachedResponseAsync(string author, HttpListenerResponse response)
         {
-            List<Book> cachedResponse = BookCache.GetValue(author);//u funkciji getValue ce se azurirati i redosled pristupa podacima iz kesa
+            List<Book> cachedResponse = BookCache.GetValue(author);
             string responseBody = Newtonsoft.Json.JsonConvert.SerializeObject(cachedResponse);
-            SendResponse(response, responseBody);
+            await SendResponseAsync(response, responseBody);
         }
 
-        private void SearchAndSendResponse(string author, HttpListenerResponse response)
+        private async Task SearchAndSendResponseAsync(string author, HttpListenerResponse response)
         {
             BookSearchService bookSearchService = new BookSearchService();
-            List<Book> books = bookSearchService.SearchBooksByAuthor(author);
+            List<Book> books = await bookSearchService.SearchBooksByAuthorAsync(author);
 
-            BookCache.Add(author, books);//u funkciji add ce se takodje azurirati redosled pristupa kesu
-            //Console.WriteLine($"\nUbacen u cache: {author}");
+            BookCache.Add(author, books);
 
             string responseBody = Newtonsoft.Json.JsonConvert.SerializeObject(books);
-            SendResponse(response, responseBody);
+            await SendResponseAsync(response, responseBody);
         }
 
-        private void SendResponse(HttpListenerResponse response, string responseBody)
+        private async Task SendResponseAsync(HttpListenerResponse response, string responseBody)
         {
             byte[] buffer = System.Text.Encoding.UTF8.GetBytes(responseBody);
             response.ContentLength64 = buffer.Length;
-            Stream output = response.OutputStream;
-            output.Write(buffer, 0, buffer.Length);
-            output.Close();
+            using (Stream output = response.OutputStream)
+            {
+                await output.WriteAsync(buffer, 0, buffer.Length);
+            }
         }
     }
 }
-
